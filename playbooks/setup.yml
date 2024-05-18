@@ -1,0 +1,94 @@
+---
+- hosts: all
+  tags: setup-oneapi
+  become: yes
+  tasks:
+  - name: Download the key to system keyring
+    shell: |
+      wget -O- https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB | gpg --dearmor | tee /usr/share/keyrings/oneapi-archive-keyring.gpg > /dev/null
+  - name: Add signed entry to apt sources and configure the APT client to use Intel repository
+    shell: |
+      echo "deb [signed-by=/usr/share/keyrings/oneapi-archive-keyring.gpg] https://apt.repos.intel.com/oneapi all main" | tee /etc/apt/sources.list.d/oneAPI.list
+
+- hosts: all
+  tags: setup-cmake
+  become: yes
+  tasks:
+  - name: TBD
+    shell: |
+      implement this
+
+- hosts: all
+  tags: setup-proxies
+  become: yes
+  tasks:
+  - name: TBD
+    shell: |
+      Add default environment to /etc/systemd/system.conf
+
+- hosts: all
+  tags: install
+  become: yes
+  tasks:
+  - name: Update apt cache
+    apt:
+      update_cache: yes
+  - name: Install
+    apt:
+      name:
+      - acl
+      - ca-certificates
+      - cmake
+      - gfortran
+      - gh
+      - gpg
+      - g++
+      - intel-oneapi-compiler-dpcpp-cpp-2024.1
+      - intel-oneapi-mkl-devel-2024.1
+      - jq
+      - python3.11-dev
+      - python3.11-venv
+      - wget
+      state: present
+
+- hosts: all
+  tags: make-users
+  become: yes
+  vars:
+    users:
+      - name: onemkl-project-github
+  tasks:
+    - name: Create users
+      user:
+        name: "{{ item.name }}"
+        shell: /bin/bash
+      with_items: "{{ users }}"
+      
+- hosts: all
+  tags: install-github-runners
+  become: yes
+  become_user: "{{ org }}-github"
+  tasks:
+    - name: Install and start GitHub runners
+      environment:
+        num_runners: 8
+        runner_label: uxl-x86
+        runner_version: 2.316.1
+        runner_file: 
+      shell: |
+        rm -rf ~/github
+        mkdir ~/github
+        cd ~/github
+        runner_file=actions-runner-linux-x64-${runner_version}.tar.gz
+        curl -o ${runner_file} -L https://github.com/actions/runner/releases/download/v${runner_version}/${runner_file}.tar.gz
+        for ((i=1; i<=$num_runners; i++)); do
+          runner_name=runner-$i
+          mkdir $runner_name
+          cd $runner_name
+          tar xzf ../$runner_file
+          token=$(gh api -X POST /orgs/$org/actions/runners/registration-token | jq -r '.token')
+          ./config.sh --url https://github.com/$org --token $token --name $runner_name --labels $runner_label --unattended --replace
+          cd ..
+        done
+      args:
+        executable: /bin/bash
